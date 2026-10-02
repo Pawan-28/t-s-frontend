@@ -1,0 +1,759 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { Article, Category, Subcategory, Tag } from "@/lib/types";
+import {
+  fetchActiveCategories,
+  fetchSubcategoriesByCategory,
+  fetchTags,
+} from "@/lib/api/taxonomyClient";
+import {
+  createArticle,
+  createTag,
+  updateArticle,
+  uploadArticleImage,
+  type ArticlePayload,
+} from "@/lib/api/reporterMutations";
+import { assignReporterAction } from "@/lib/api/adminArticleActions";
+import { useArticleEditor } from "@/components/reporter/RichTextEditor";
+import RichTextEditor from "@/components/reporter/RichTextEditor";
+import ImageManager from "@/components/reporter/ImageManager";
+import AIPlagiarismPanel from "@/components/reporter/AIPlagiarismPanel";
+import StatusBadge from "@/components/reporter/StatusBadge";
+import ArticleWorkflowActions from "@/components/dashboard/ArticleWorkflowActions";
+import AssignReporterControl from "@/components/dashboard/AssignReporterControl";
+import { formatDateTime } from "@/lib/format";
+
+const ACCESS_LEVELS: { value: ArticlePayload["access_level"]; label: string }[] = [
+  { value: "PUBLIC", label: "Public" },
+  { value: "SUBSCRIBER_ONLY", label: "Subscriber Only" },
+  { value: "RESTRICTED", label: "Restricted" },
+];
+
+/**
+ * Admin CMS Article editor.
+ *
+ * Section order (per the final admin/reporter review flow
+ * implementation task): Basic Info -> Image -> Classification -> Tags ->
+ * Access Level -> AI & Plagiarism Checks -> Publishing Information ->
+ * Timestamps -> Save Actions -> Ownership & Workflow (Author, Assigned
+ * Reporter, Status, Workflow Actions). Save Actions sits immediately
+ * above Ownership & Workflow, never below it.
+ *
+ * There is deliberately no standalone "Scheduling" section any more - it
+ * used to sit where AI & Plagiarism Checks is now, with its own date/time
+ * inputs and Set/Cancel Schedule buttons calling the exact same
+ * scheduleAction/cancelScheduleAction as ArticleWorkflowActions' own
+ * Schedule button in Ownership & Workflow below (same
+ * DRAFT/APPROVED/SCHEDULED availability) - a real duplicate-button
+ * situation the implementation task's anti-pattern list called out
+ * directly. Workflow Actions is now the one and only place to set,
+ * reschedule or cancel a schedule; the read-only "Currently scheduled for
+ * ..." line moved down next to Status so that information isn't lost.
+ *
+ * Deliberately NOT the Reporter surface's ArticleForm - the Reporter
+ * dashboard is an untouched, protected system; this is its own
+ * component.
+ *
+ * Author preservation: this component never sends an `author` field on
+ * create or update - ArticleSerializer.author is read_only (and also
+ * listed in read_only_fields) on the backend, and no service method in
+ * apps.reporters.services.ArticleWorkflowService (start_review/approve/
+ * publish/schedule/cancel_schedule) ever reassigns Article.author - it is
+ * only ever read (for notification recipients). Verified by tracing the
+ * backend directly; nothing needed fixing there.
+ *
+ * Featured image: every image an admin uploads or replaces is
+ * automatically the article's featured/hero image - see ImageManager's
+ * `forceFeatured` prop below. This is the same is_featured field/pipeline
+ * the Reporter surface already uses (apps.media.services.
+ * ArticleImageService.upload_for_article already demotes any previously-
+ * featured image whenever is_featured=True comes in - verified by
+ * tracing that method), not a second system.
+ *
+ * Editing at any status: apps.articles.permissions.IsArticleOwnerOrAdmin.
+ * has_object_permission unconditionally returns True for
+ * is_superuser/ADMIN before any status check runs - verified by tracing
+ * the backend permission class directly. An admin was never blocked from
+ * editing an article at any status; no backend or frontend permission
+ * fix was needed for this.
+ */
+export default function AdminArticleEditor({
+  mode,
+  article,
+}: {
+  mode: "create" | "edit";
+  article?: Article;
+}) {
+  const router = useRouter();
+  const BASE_PATH = "/api/admin/articles";
+
+  const [savedArticle, setSavedArticle] = useState<Article | null>(article ?? null);
+
+  // --- Section 1: Basic Information --------------------------------------
+  const [title, setTitle] = useState(article?.title ?? "");
+  const [slug, setSlug] = useState(article?.slug ?? "");
+  const [excerpt, setExcerpt] = useState(article?.excerpt ?? "");
+  const [content, setContent] = useState(article?.content ?? "");
+  const editor = useArticleEditor(content, setContent);
+
+  // --- Section 2: Image (pre-save uploader state only - once saved,
+  // ImageManager owns all of its own state). Featured image is always
+  // automatic here - no checkbox, is_featured is always sent as true. ---
+  const preImageFileRef = useRef<HTMLInputElement>(null);
+  const [preImgAlt, setPreImgAlt] = useState("");
+  const [preImgCaption, setPreImgCaption] = useState("");
+  const [preImgBusy, setPreImgBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
+  // Bumped after a pre-save upload finishes so ImageManager (which mounts as soon as the draft exists, i.e. before the upload completes) reloads its list.
+  const [imageManagerKey, setImageManagerKey] = useState(0);
+
+  // --- Section 3: Classification (Category -> Subcategory -> derived
+  // Industry) --------------------------------------------------------------
+  const initialCategorySlug = article?.subcategory?.category.slug ?? article?.category?.slug ?? "";
+  const [categorySlug, setCategorySlug] = useState(initialCategorySlug);
+  const [subcategorySlug, setSubcategorySlug] = useState(article?.subcategory?.slug ?? "");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+
+  useEffect(() => {
+    fetchActiveCategories().then(setCategories).catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    if (!categorySlug) {
+      setSubcategories([]);
+      return;
+    }
+    fetchSubcategoriesByCategory(categorySlug).then(setSubcategories).catch(() => setSubcategories([]));
+  }, [categorySlug]);
+
+  const categoryLocked = Boolean(subcategorySlug);
+  const selectedSubcategory = subcategories.find((s) => s.slug === subcategorySlug) ?? article?.subcategory ?? null;
+  const derivedIndustry = selectedSubcategory?.category.industry ?? article?.industry ?? null;
+
+  function handleCategoryChange(nextSlug: string) {
+    setCategorySlug(nextSlug);
+    setSubcategorySlug("");
+  }
+
+  // --- Section 4: Tags -----------------------------------------------------
+  const [selectedTags, setSelectedTags] = useState<Tag[]>(article?.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
+  const [tagOptions, setTagOptions] = useState<Tag[]>([]);
+
+  useEffect(() => {
+    if (tagInput.trim().length < 2) {
+      setTagOptions([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      fetchTags(tagInput.trim()).then(setTagOptions).catch(() => setTagOptions([]));
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [tagInput]);
+
+  function addExistingTag(tag: Tag) {
+    if (selectedTags.some((t) => t.id === tag.id)) return;
+    setSelectedTags((prev) => [...prev, tag]);
+    setTagInput("");
+    setTagOptions([]);
+  }
+
+  async function addNewTag() {
+    const name = tagInput.trim();
+    if (!name) return;
+    const existing = tagOptions.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      addExistingTag(existing);
+      return;
+    }
+    const result = await createTag(name);
+    if (result.ok && result.data) {
+      addExistingTag(result.data);
+    } else {
+      setError(result.error);
+    }
+  }
+
+  function removeTag(id: number) {
+    setSelectedTags((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  // --- Section 5: Access Level ---------------------------------------------
+  const [accessLevel, setAccessLevel] = useState<ArticlePayload["access_level"]>(article?.access_level ?? "PUBLIC");
+
+  // --- Pre-save Assign Reporter (Ownership & Workflow section) -------------
+  // Implementation task: the Admin must be able to assign a reporter (which
+  // the backend already transitions straight to UNDER_REVIEW from DRAFT -
+  // see ArticleWorkflowService.assign_reporter) WITHOUT first finding a
+  // separate Save step - same transparent-draft-creation pattern
+  // handlePreSaveUpload already established for the Image section above.
+  interface ReporterOption {
+    id: number;
+    email: string;
+    full_name: string;
+  }
+  const [preReporters, setPreReporters] = useState<ReporterOption[]>([]);
+  const [preReportersLoading, setPreReportersLoading] = useState(false);
+  const [preSelectedReporter, setPreSelectedReporter] = useState("");
+  const [preAssignBusy, setPreAssignBusy] = useState(false);
+  const [preAssignError, setPreAssignError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (savedArticle) return; // only needed for the pre-save mini form below
+    setPreReportersLoading(true);
+    fetch("/api/admin/users?role=REPORTER&is_active=true")
+      .then((res) => (res.ok ? res.json() : { results: [] }))
+      .then((data) => setPreReporters(Array.isArray(data) ? data : data.results ?? []))
+      .catch(() => setPreReporters([]))
+      .finally(() => setPreReportersLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handlePreSaveAssignReporter() {
+    if (!preSelectedReporter) return;
+    setPreAssignError(null);
+    setPreAssignBusy(true);
+    const { article: saved, error: persistError } = await persist();
+    if (!saved) {
+      setPreAssignBusy(false);
+      setPreAssignError(persistError ?? "Add a title, content and subcategory before assigning a reporter.");
+      return;
+    }
+    const result = await assignReporterAction(saved.slug, Number(preSelectedReporter));
+    setPreAssignBusy(false);
+    if (!result.ok) {
+      setPreAssignError(result.error);
+      return;
+    }
+    if (result.data) setSavedArticle(result.data);
+    router.refresh();
+  }
+
+  // Publish / Schedule / Reject finish the admin's work on this article:
+  // close the editor and go back to the article list.
+  function closeEditor() {
+    router.push("/admin/articles");
+  }
+
+  // --- Save / persistence --------------------------------------------------
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+
+  function validate(): string | null {
+    if (!title.trim()) return "Title is required.";
+    if (!subcategorySlug) return "Choose a category and subcategory before saving.";
+    if (!content || content === "<p></p>") return "Content cannot be blank.";
+    return null;
+  }
+
+  function buildPayload(): ArticlePayload {
+    return {
+      title,
+      content,
+      excerpt,
+      slug: slug || undefined,
+      subcategory_slug: subcategorySlug,
+      tag_slugs: selectedTags.map((t) => t.slug),
+      access_level: accessLevel,
+    };
+  }
+
+  async function persist(): Promise<{ article: Article | null; error: string | null }> {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return { article: null, error: validationError };
+    }
+    setError(null);
+    setSaving(true);
+    const payload = buildPayload();
+    const result = savedArticle
+      ? await updateArticle(savedArticle.slug, payload, BASE_PATH)
+      : await createArticle(payload, BASE_PATH);
+    setSaving(false);
+    if (!result.ok || !result.data) {
+      setError(result.error);
+      return { article: null, error: result.error };
+    }
+    setSavedArticle(result.data);
+    return { article: result.data, error: null };
+  }
+
+  // Guards against a double click firing two requests before `saving` re-renders.
+  const saveInFlight = useRef(false);
+
+  // After a Save from the Add Article page the browser moves to that article's
+  // existing edit route (/admin/articles/[slug]/edit). The component unmounts on
+  // navigation, so the "Saved." notice is handed over through sessionStorage and
+  // shown once by the edit page's editor.
+  const SAVED_FLAG = "admin-article-saved:";
+  useEffect(() => {
+    if (mode !== "edit" || !article) return;
+    try {
+      const key = SAVED_FLAG + article.slug;
+      if (sessionStorage.getItem(key)) {
+        sessionStorage.removeItem(key);
+        setSavedMessage("Saved.");
+      }
+    } catch {
+      /* storage unavailable: the page simply loads without the notice */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSave() {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    try {
+      setSavedMessage(null);
+      const pendingImage = savedArticle ? null : preImageFileRef.current?.files?.[0] ?? null;
+      const { article: saved } = await persist();
+      if (!saved) return; // failed create/update: stay put, the error is already shown
+      if (mode === "create") {
+        // Keep the buttons disabled until the navigation completes (no duplicate submit).
+        setSaving(true);
+        if (pendingImage) {
+          // An image was chosen before the article could be saved: attach it now.
+          const up = await uploadArticleImage(
+            saved.slug,
+            pendingImage,
+            { alt_text: preImgAlt, caption: preImgCaption, is_featured: true },
+            BASE_PATH
+          );
+          if (!up.ok) {
+            setSaving(false);
+            setError(`The article was saved, but the image upload failed: ${up.error || "please try again"}. You can re-add the image below.`);
+            return; // stay here so the image can be retried (the image manager is shown now)
+          }
+        }
+        try {
+          sessionStorage.setItem(SAVED_FLAG + saved.slug, "1");
+        } catch {
+          /* ignore */
+        }
+        router.push(`/admin/articles/${encodeURIComponent(saved.slug)}/edit`);
+        return;
+      }
+      setSavedMessage("Saved.");
+      router.refresh();
+    } finally {
+      saveInFlight.current = false; // in create mode `saving` stays true until the edit route replaces this page
+    }
+  }
+
+  async function handleSaveAddAnother() {
+    setSavedMessage(null);
+    const { article: saved } = await persist();
+    if (!saved) return;
+    router.push("/admin/articles/new");
+  }
+
+  async function handleSaveContinue() {
+    setSavedMessage(null);
+    const { article: saved } = await persist();
+    if (!saved) return;
+    setSavedMessage("Saved.");
+    router.refresh();
+  }
+
+  // Runs as soon as a file is chosen (there is no separate submit button).
+  // If the article can already be saved (title, content, subcategory filled in)
+  // it is saved as a draft and the image attached right away; otherwise the file
+  // stays selected and is uploaded together with the article when Save is clicked.
+  async function handlePreSaveUpload() {
+    const file = preImageFileRef.current?.files?.[0];
+    if (!file) return;
+    setImageError(null);
+    setImageNotice(null);
+    const blocker = validate();
+    if (blocker) {
+      setImageNotice(`Image selected. It will be uploaded when you save the article (${blocker.replace(/\.$/, "")}).`);
+      return;
+    }
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setPreImgBusy(true);
+    try {
+      // Transparently create the draft first, exactly as the Save button
+      // would, using whatever has been entered so far.
+      const { article: saved, error: persistError } = await persist();
+      if (!saved) {
+        setPreImgBusy(false);
+        setImageError(persistError ?? "Could not save the article, so the image was not uploaded.");
+        return;
+      }
+      // Always featured - no checkbox, per the Admin CMS requirement.
+      const result = await uploadArticleImage(
+        saved.slug,
+        file,
+        { alt_text: preImgAlt, caption: preImgCaption, is_featured: true },
+        BASE_PATH
+      );
+      setPreImgBusy(false);
+      if (!result.ok) {
+        setImageError(result.error || "Failed to upload image. Please try again.");
+        return;
+      }
+      setImageManagerKey((k) => k + 1);
+      // savedArticle is now set, so the JSX below swaps to the real
+      // ImageManager (which fetches this article's images itself, including
+      // the one just uploaded) on the next render.
+    } catch (err) {
+      setPreImgBusy(false);
+      setImageError("An unexpected error occurred while uploading the image.");
+      console.error("Image upload error:", err);
+    } finally {
+      saveInFlight.current = false;
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Section 1 - Article Basic Information */}
+      <section className="flex flex-col gap-4">
+        <h2 className="section-heading">Article Basic Information</h2>
+        <label className="flex flex-col gap-1.5">
+          <span className="field-label">Title</span>
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="field-input" required />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="field-label">
+            Slug <span className="font-normal text-text-400">(optional - auto-generated from the title if left blank)</span>
+          </span>
+          <input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} className="field-input" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="field-label">Excerpt</span>
+          <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={3} className="field-input resize-y" />
+        </label>
+        <div className="flex flex-col gap-1.5">
+          <span className="field-label">Content</span>
+          <RichTextEditor editor={editor} />
+        </div>
+      </section>
+
+      {/* Section 2 - Image (featured image is always automatic - no
+          "Set as featured image" control anywhere in this section) */}
+      <section className="flex flex-col gap-4 border-t border-border-200 pt-6">
+        <h2 className="section-heading">Image</h2>
+        {imageError && <p className="field-error">{imageError}</p>}
+        {imageNotice && !imageError && !savedArticle && <p className="text-sm text-text-600">{imageNotice}</p>}
+        {preImgBusy && <p className="text-sm text-text-600">Saving article &amp; uploading image...</p>}
+        {savedArticle ? (
+          <ImageManager key={imageManagerKey} slug={savedArticle.slug} basePath={BASE_PATH} showHeading={false} forceFeatured />
+        ) : (
+          <div className="flex flex-col gap-3 rounded-md border border-border-200 p-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="field-label text-sm">Upload an image</span>
+              <input
+                ref={preImageFileRef}
+                type="file"
+                accept="image/*"
+                className="field-input"
+                disabled={preImgBusy}
+                onChange={handlePreSaveUpload}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="field-label text-sm">Alt Text</span>
+              <input
+                type="text"
+                value={preImgAlt}
+                onChange={(e) => setPreImgAlt(e.target.value)}
+                placeholder="Describes the image for screen readers"
+                className="field-input"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="field-label text-sm">Caption</span>
+              <input type="text" value={preImgCaption} onChange={(e) => setPreImgCaption(e.target.value)} className="field-input" />
+            </label>
+          </div>
+        )}
+      </section>
+
+      {/* Section 3 - Classification */}
+      <section className="flex flex-col gap-3 border-t border-border-200 pt-6">
+        <h2 className="section-heading">Classification</h2>
+        <p className="text-xs text-text-400">
+          Subcategory is the primary classification. Category and Industry are derived from it.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="field-label">Category</span>
+            <select
+              value={categorySlug}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              className="field-input"
+              disabled={categoryLocked}
+            >
+              <option value="">Select a category</option>
+              {categories.map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {categoryLocked && (
+              <button
+                type="button"
+                onClick={() => setSubcategorySlug("")}
+                className="self-start text-xs font-semibold text-accent-600 hover:underline"
+              >
+                Change category (clears the selected subcategory)
+              </button>
+            )}
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="field-label">Subcategory</span>
+            <select
+              value={subcategorySlug}
+              onChange={(e) => setSubcategorySlug(e.target.value)}
+              className="field-input"
+              disabled={!categorySlug}
+              required
+            >
+              <option value="">Select a subcategory</option>
+              {subcategories.map((s) => (
+                <option key={s.slug} value={s.slug}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="field-label">Industry</span>
+            <p className="field-input flex items-center bg-surface-50 text-text-600">
+              {derivedIndustry ? derivedIndustry.name : "Derived once a subcategory is chosen"}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 4 - Tags */}
+      <section className="flex flex-col gap-1.5 border-t border-border-200 pt-6">
+        <h2 className="section-heading mb-2.5">Tags</h2>
+        <div className="flex flex-wrap gap-2">
+          {selectedTags.map((tag) => (
+            <span key={tag.id} className="badge bg-surface-50 text-text-600">
+              {tag.name}
+              <button
+                type="button"
+                onClick={() => removeTag(tag.id)}
+                aria-label={`Remove tag ${tag.name}`}
+                className="ml-1 text-text-400 hover:text-error-600"
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="relative flex gap-2">
+          <input
+            type="text"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addNewTag();
+              }
+            }}
+            placeholder="Type to search or create a tag, then press Enter"
+            className="field-input"
+          />
+          {tagOptions.length > 0 && (
+            <ul className="absolute top-full z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border-200 bg-surface-0 shadow-sm">
+              {tagOptions.map((tag) => (
+                <li key={tag.id}>
+                  <button
+                    type="button"
+                    onClick={() => addExistingTag(tag)}
+                    className="block w-full px-3 py-2 text-left text-sm text-text-900 hover:bg-surface-50"
+                  >
+                    {tag.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      {/* Section 5 - Access Level */}
+      <section className="flex flex-col gap-1.5 border-t border-border-200 pt-6 sm:w-64">
+        <h2 className="section-heading mb-2.5">Access Level</h2>
+        <select
+          value={accessLevel}
+          onChange={(e) => setAccessLevel(e.target.value as ArticlePayload["access_level"])}
+          className="field-input"
+        >
+          {ACCESS_LEVELS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </section>
+
+      {/* Section 6 - AI & Plagiarism Checks. Implementation task: moved here
+          (right after Access Level, before Publishing Information) per
+          the final required page order. The standalone "Scheduling"
+          section that used to occupy this slot is REMOVED entirely -
+          it duplicated ArticleWorkflowActions' own Schedule button and
+          date/time dialog in Ownership & Workflow below (same
+          scheduleAction/cancelScheduleAction calls, same
+          DRAFT/APPROVED/SCHEDULED availability), which is now the one
+          and only place to set or cancel a schedule - see section 23's
+          "avoid dead/duplicated Schedule buttons". The read-only
+          "Currently scheduled for ..." line moved down into Ownership &
+          Workflow, next to Status, so that information isn't lost. */}
+      {/* <section className="flex flex-col gap-4 border-t border-border-200 pt-6">
+        <h2 className="section-heading">AI &amp; Plagiarism Checks</h2>
+        {savedArticle ? (
+          <AIPlagiarismPanel slug={savedArticle.slug} basePath={BASE_PATH} />
+        ) : (
+          <p className="rounded-md border border-border-200 bg-surface-50 px-3 py-2.5 text-sm text-text-400">
+            Available once this article is saved.
+          </p>
+        )}
+      </section> */}
+
+      {/* Section 7 - Publishing Information */}
+      {/* <section className="flex flex-col gap-1.5 border-t border-border-200 pt-6">
+        <h2 className="section-heading">Publishing Information</h2>
+        <div>
+          <span className="field-label">Published At</span>
+          <p className="mt-1.5 text-sm text-text-900">
+            {savedArticle?.published_at ? (
+              formatDateTime(savedArticle.published_at)
+            ) : (
+              <span className="text-text-400">Not published yet - controlled by the backend workflow.</span>
+            )}
+          </p>
+        </div>
+      </section> */}
+
+      {/* Section 8 - Timestamps */}
+      {/* <section className="flex flex-col gap-1.5 border-t border-border-200 pt-6">
+        <h2 className="section-heading">Timestamps</h2>
+        <div className="grid grid-cols-2 gap-4 text-sm sm:w-96">
+          <div>
+            <span className="field-label">Created At</span>
+            <p className="mt-1.5 text-text-900">{savedArticle ? formatDateTime(savedArticle.created_at) : "Not saved yet"}</p>
+          </div>
+          <div>
+            <span className="field-label">Updated At</span>
+            <p className="mt-1.5 text-text-900">{savedArticle ? formatDateTime(savedArticle.updated_at) : "Not saved yet"}</p>
+          </div>
+        </div>
+      </section> */}
+
+      {/* Section 9 - Save Actions. Per the final layout correction, Save
+          Actions sits immediately above Ownership & Workflow (not below
+          it) - the three buttons and their behavior are unchanged. */}
+      <section className="flex flex-col gap-3 border-t border-border-200 pt-6">
+        {error && <p className="field-error">{error}</p>}
+        {savedMessage && (
+          <p className="rounded-md border border-success-600/20 bg-success-600/5 px-3 py-2 text-sm text-success-600">
+            {savedMessage}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary">
+            {saving ? "Saving..." : "Save"}
+          </button>
+          <button type="button" onClick={handleSaveAddAnother} disabled={saving} className="btn-secondary">
+            {saving ? "Saving..." : "Save and Add Another"}
+          </button>
+          <button type="button" onClick={handleSaveContinue} disabled={saving} className="btn-secondary">
+            {saving ? "Saving..." : "Save and Continue Editing"}
+          </button>
+        </div>
+      </section>
+
+      {/* Section 10 - Ownership & Workflow (FINAL section of the page, per
+          the latest layout correction). Author + Assigned Reporter +
+          Status + Workflow Actions, merged back into the single section
+          the original requirement described - previously split across
+          two sections for an earlier layout, now recombined because this
+          is the last section on the page either way. New, unsaved
+          articles show no workflow actions - only once savedArticle
+          exists. Request Changes is still not offered anywhere in this
+          list (see ArticleWorkflowActions) - unchanged. */}
+      <section className="flex flex-col gap-4 rounded-md border border-border-200 bg-surface-50/60 p-5">
+        <h2 className="section-heading">Ownership &amp; Workflow</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <span className="field-label">Author</span>
+            <p className="mt-1.5 text-sm text-text-900">
+              {savedArticle ? savedArticle.author.full_name || savedArticle.author.email : "You (set automatically once saved)"}
+            </p>
+          </div>
+          <div>
+            <span className="field-label">Assigned Reporter</span>
+            {savedArticle ? (
+              <AssignReporterControl article={savedArticle} />
+            ) : (
+              <div className="mt-1.5 flex flex-col gap-2">
+                {preAssignError && <p className="field-error">{preAssignError}</p>}
+                <select
+                  value={preSelectedReporter}
+                  onChange={(e) => setPreSelectedReporter(e.target.value)}
+                  className="field-input"
+                  disabled={preReportersLoading}
+                >
+                  <option value="">{preReportersLoading ? "Loading reporters..." : "Select a reporter"}</option>
+                  {preReporters.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.full_name || r.email}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handlePreSaveAssignReporter}
+                  disabled={preAssignBusy || !preSelectedReporter}
+                  className="btn-secondary self-start px-3 py-1.5 text-xs"
+                >
+                  {preAssignBusy ? "Saving & assigning..." : "Assign (saves this article first)"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="border-t border-border-200 pt-4">
+          <span className="field-label">Status</span>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3">
+            {savedArticle ? <StatusBadge status={savedArticle.status} /> : <span className="text-sm text-text-400">Not saved yet (Draft once saved)</span>}
+            {savedArticle?.scheduled_publish_at && (
+              <span className="text-sm text-info-600">
+                Currently scheduled for {formatDateTime(savedArticle.scheduled_publish_at)}.
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="border-t border-border-200 pt-4">
+          {savedArticle ? (
+            <ArticleWorkflowActions article={savedArticle} onClosePage={closeEditor} />
+          ) : (
+            <>
+              <span className="field-label">Workflow Actions</span>
+              <p className="mt-1.5 text-sm text-text-400">
+                Save this article, or assign a reporter above (which saves it automatically), to unlock
+                Publish/Schedule/Reject/Move to Under Review.
+              </p>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}

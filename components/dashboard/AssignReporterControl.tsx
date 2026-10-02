@@ -1,0 +1,125 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { Article } from "@/lib/types";
+import { assignReporterAction } from "@/lib/api/adminArticleActions";
+
+interface ReporterOption {
+  id: number;
+  email: string;
+  full_name: string;
+}
+
+const ASSIGNABLE_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW"];
+
+/**
+ * Editorial Workflow Scenario A - routes an article to a specific
+ * Reporter (ArticleWorkflowService.assign_reporter on the backend, which
+ * itself re-validates role=REPORTER and the reporter's
+ * ReporterCategoryAssignment eligibility for this article's category -
+ * this control does not duplicate either check, it just surfaces the
+ * backend's own rejection if the pick is invalid).
+ */
+export default function AssignReporterControl({
+  article,
+  beforeAssign,
+}: {
+  article: Article;
+  /**
+   * Called right before assigning: the editor passes a function that saves the form's current
+   * (possibly unsaved) values first - e.g. a category changed in the form - so the backend's
+   * "reporter is assigned to this category" check runs against what is on screen, not the
+   * previously saved category.
+   */
+  beforeAssign?: () => Promise<{ ok: boolean; slug?: string; error?: string }>;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [reporters, setReporters] = useState<ReporterOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<string>(article.assigned_reporter ? String(article.assigned_reporter.id) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canAssign = ASSIGNABLE_STATUSES.includes(article.status);
+
+  useEffect(() => {
+    if (!editing) return;
+    setLoading(true);
+    fetch("/api/admin/users?role=REPORTER&is_active=true")
+      .then((res) => (res.ok ? res.json() : { results: [] }))
+      .then((data) => setReporters(Array.isArray(data) ? data : data.results ?? []))
+      .catch(() => setReporters([]))
+      .finally(() => setLoading(false));
+  }, [editing]);
+
+  async function handleAssign() {
+    if (!selected) return;
+    setSaving(true);
+    setError(null);
+    let slug = article.slug;
+    if (beforeAssign) {
+      const pre = await beforeAssign();
+      if (!pre.ok) {
+        setSaving(false);
+        setError(pre.error ?? "Could not save the article before assigning.");
+        return;
+      }
+      slug = pre.slug ?? slug;
+    }
+    const result = await assignReporterAction(slug, Number(selected));
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setEditing(false);
+    router.refresh();
+  }
+
+  if (!canAssign) {
+    return (
+      <p className="mt-1.5 text-sm text-text-900">
+        {article.assigned_reporter ? article.assigned_reporter.full_name || article.assigned_reporter.email : "Unassigned"}
+        <span className="ml-2 text-xs text-text-400">(not changeable at this status)</span>
+      </p>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <div className="mt-1.5 flex items-center gap-2">
+        <p className="text-sm text-text-900">
+          {article.assigned_reporter ? article.assigned_reporter.full_name || article.assigned_reporter.email : "Unassigned"}
+        </p>
+        <button type="button" onClick={() => setEditing(true)} className="text-xs font-semibold text-accent-600 hover:underline">
+          {article.assigned_reporter ? "Change" : "Assign"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-2">
+      {error && <p className="field-error">{error}</p>}
+      <select value={selected} onChange={(e) => setSelected(e.target.value)} className="field-input" disabled={loading}>
+        <option value="">{loading ? "Loading reporters..." : "Select a reporter"}</option>
+        {reporters.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.full_name || r.email}
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setEditing(false)} disabled={saving} className="btn-secondary px-3 py-1.5 text-xs">
+          Cancel
+        </button>
+        <button type="button" onClick={handleAssign} disabled={saving || !selected} className="btn-primary px-3 py-1.5 text-xs">
+          {saving ? "Assigning..." : "Confirm"}
+        </button>
+      </div>
+      {beforeAssign && <p className="text-xs text-text-400">Any unsaved changes in the form are saved first.</p>}
+    </div>
+  );
+}

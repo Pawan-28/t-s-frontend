@@ -40,6 +40,20 @@ export async function fetchCategoriesByIndustry(industrySlug: string): Promise<C
   return asArray(data).filter((c) => c.is_active);
 }
 
+/**
+ * Admin CMS Article editor requirement: Classification is Category-first
+ * (Category -> Subcategory, with Industry derived from the chosen
+ * Subcategory - see AdminArticleEditor), so the editor needs every active
+ * Category up front, not narrowed by an Industry the admin never picks.
+ * GET /api/categories/ with no query params already returns exactly this
+ * (apps.categories.views.CategoryViewSet.get_queryset only filters by
+ * `industry` when that param is present) - no backend change needed.
+ */
+export async function fetchActiveCategories(): Promise<Category[]> {
+  const data = await publicFetch<PaginatedResponse<Category> | Category[]>("/categories/");
+  return asArray(data).filter((c) => c.is_active);
+}
+
 export async function fetchSubcategoriesByCategory(categorySlug: string): Promise<Subcategory[]> {
   const data = await publicFetch<PaginatedResponse<Subcategory> | Subcategory[]>(
     `/subcategories/?category=${encodeURIComponent(categorySlug)}`

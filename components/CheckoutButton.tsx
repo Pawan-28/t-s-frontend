@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SubscriptionPlan } from "@/lib/types";
+import { extractApiError } from "@/lib/api/apiError";
 
 declare global {
   interface Window {
@@ -29,9 +30,11 @@ function loadRazorpayScript(): Promise<boolean> {
 /**
  * Phase 9 checkout flow (Decision 1: one-time payment per period, no
  * recurring billing):
+ *   0. The buyer enters/confirms Email + Mobile (SubscribeCheckout) - both
+ *      are validated here AND by the backend before any order exists.
  *   1. POST /api/subscriptions/checkout (this app's Route Handler, which
- *      forwards the session cookie to Django as a Bearer token) -> a
- *      Razorpay order_id + amount + key_id.
+ *      forwards the session cookie to Django as a Bearer token) with
+ *      {plan_slug, email, phone} -> a Razorpay order_id + amount + key_id.
  *   2. Open Razorpay Checkout with those values.
  *   3. On success, POST /api/subscriptions/verify with Razorpay's
  *      returned order/payment id + signature -> Django verifies the HMAC
@@ -39,19 +42,30 @@ function loadRazorpayScript(): Promise<boolean> {
  * The Razorpay key_secret never reaches the browser at any point - only
  * key_id (public) does, and only via the checkout/ response.
  */
-export default function CheckoutButton({ plan }: { plan: SubscriptionPlan }) {
+export default function CheckoutButton({
+  plan,
+  contact,
+  validateContact,
+}: {
+  plan: SubscriptionPlan;
+  /** The buyer's confirmed checkout contact details (raw, as typed). */
+  contact: { email: string; phone: string };
+  /** Runs the shared client-side validation and shows field errors; returns false to block checkout. */
+  validateContact: () => boolean;
+}) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    setStatus("loading");
     setError(null);
+    if (!validateContact()) return;
+    setStatus("loading");
 
     const checkoutRes = await fetch("/api/subscriptions/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_slug: plan.slug }),
+      body: JSON.stringify({ plan_slug: plan.slug, email: contact.email.trim(), phone: contact.phone.trim() }),
     });
 
     if (checkoutRes.status === 401) {
@@ -62,7 +76,7 @@ export default function CheckoutButton({ plan }: { plan: SubscriptionPlan }) {
     const order = await checkoutRes.json().catch(() => ({}));
     if (!checkoutRes.ok) {
       setStatus("error");
-      setError(order.detail || "Could not start checkout.");
+      setError(extractApiError(order, "Could not start checkout."));
       return;
     }
 
@@ -82,6 +96,8 @@ export default function CheckoutButton({ plan }: { plan: SubscriptionPlan }) {
       order_id: order.order_id,
       name: "Truth & Social",
       description: `${plan.name} subscription`,
+      // Confirmed Email + Mobile, so the buyer doesn't retype them in Razorpay.
+      prefill: order.prefill ? { email: order.prefill.email, contact: order.prefill.contact } : undefined,
       handler: async (paymentResponse: {
         razorpay_order_id: string;
         razorpay_payment_id: string;

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test scripts/test-bunny-hostname.mjs scripts/test-checkout-contact.mjs scripts/test-structured-data.mjs scripts/test-client-ip.mjs"
   },
   "dependencies": {
     "@tiptap/extension-image": "^3.31.3",

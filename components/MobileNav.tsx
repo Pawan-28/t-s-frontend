@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Category, CurrentUser } from "@/lib/types";
 import SearchBox from "@/components/SearchBox";
+import { adminLandingPath } from "@/lib/auth/permissions";
 
 /**
  * Mobile-only nav: a hamburger button that expands into a full-width
@@ -75,6 +76,33 @@ export default function MobileNav({
                     className="rounded px-2 py-2.5 text-sm font-semibold text-accent-600 hover:bg-accent-50"
                   >
                     Reporter Dashboard
+                  </Link>
+                )}
+                {user.role !== "ADMIN" && adminLandingPath(user) && (
+                  <Link
+                    href={adminLandingPath(user) as string}
+                    onClick={() => setOpen(false)}
+                    className="rounded px-2 py-2.5 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    Admin Panel
+                  </Link>
+                )}
+                {user.role === "ADMIN" && (
+                  <Link
+                    href="/admin/dashboard"
+                    onClick={() => setOpen(false)}
+                    className="rounded px-2 py-2.5 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    Admin Dashboard
+                  </Link>
+                )}
+                {(user.role === "USER" || user.role === "SUBSCRIBER") && (
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setOpen(false)}
+                    className="rounded px-2 py-2.5 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    My Dashboard
                   </Link>
                 )}
                 <Link

@@ -8,6 +8,10 @@ import { createArticle, updateArticle, createTag, type ArticlePayload } from "@/
 import { useArticleEditor } from "./RichTextEditor";
 import RichTextEditor from "./RichTextEditor";
 import ImageManager from "./ImageManager";
+import AIPlagiarismPanel from "./AIPlagiarismPanel";
+import ArticleWorkflowActions from "@/components/dashboard/ArticleWorkflowActions";
+import ArticleAeoGeoFields, { type FaqDraft } from "@/components/ArticleAeoGeoFields";
+import AssignReporterControl from "@/components/dashboard/AssignReporterControl";
 
 const ACCESS_LEVELS: { value: ArticlePayload["access_level"]; label: string }[] = [
   { value: "PUBLIC", label: "Public" },
@@ -18,15 +22,26 @@ const ACCESS_LEVELS: { value: ArticlePayload["access_level"]; label: string }[] 
 export default function ArticleForm({
   mode,
   article,
+  variant = "reporter",
 }: {
   mode: "create" | "edit";
   article?: Article;
+  /** "admin" reuses every field/behavior below unchanged, but points
+   * mutations/ImageManager/AIPlagiarismPanel at /api/admin/articles
+   * instead of /api/reporter/articles, redirects to the admin edit route
+   * after create, and surfaces admin-only Author/Assigned Reporter +
+   * workflow-action controls. */
+  variant?: "reporter" | "admin";
 }) {
   const router = useRouter();
+  const basePath = variant === "admin" ? "/api/admin/articles" : "/api/reporter/articles";
+  const editRoute = variant === "admin" ? "/admin/articles" : "/reporter/articles";
 
   const [title, setTitle] = useState(article?.title ?? "");
   const [slug, setSlug] = useState(article?.slug ?? "");
   const [excerpt, setExcerpt] = useState(article?.excerpt ?? "");
+  const [locationName, setLocationName] = useState(article?.location_name ?? "");
+  const [faqs, setFaqs] = useState<FaqDraft[]>(article?.faqs ?? []);
   const [content, setContent] = useState(article?.content ?? "");
   const [accessLevel, setAccessLevel] = useState<ArticlePayload["access_level"]>(article?.access_level ?? "PUBLIC");
 
@@ -123,6 +138,12 @@ export default function ArticleForm({
       title,
       content,
       excerpt,
+      // A locked view of the article (caller not entitled to its body) has its
+      // FAQs withheld by the API, so an empty list here is "unknown", not
+      // "cleared" - never send it, or a save would wipe the stored FAQs.
+      ...(article?.is_locked
+        ? {}
+        : { location_name: locationName.trim(), faqs: faqs.filter((f) => f.question.trim() || f.answer.trim()) }),
       slug: slug || undefined,
       subcategory_slug: subcategorySlug,
       tag_slugs: selectedTags.map((t) => t.slug),
@@ -149,7 +170,9 @@ export default function ArticleForm({
     setSaving(true);
     const payload = buildPayload();
     const result =
-      mode === "create" ? await createArticle(payload) : await updateArticle(article!.slug, payload);
+      mode === "create"
+        ? await createArticle(payload, basePath)
+        : await updateArticle(article!.slug, payload, basePath);
     setSaving(false);
 
     if (!result.ok || !result.data) {
@@ -158,7 +181,7 @@ export default function ArticleForm({
     }
 
     if (mode === "create") {
-      router.push(`/reporter/articles/${result.data.slug}/edit`);
+      router.push(`${editRoute}/${result.data.slug}/edit`);
       return;
     }
     setSavedMessage(article?.status === "DRAFT" ? "Draft saved." : "Changes saved.");
@@ -205,6 +228,13 @@ export default function ArticleForm({
         <span className="field-label">Content</span>
         <RichTextEditor editor={editor} />
       </div>
+
+      <ArticleAeoGeoFields
+        location={locationName}
+        onLocationChange={setLocationName}
+        faqs={faqs}
+        onFaqsChange={setFaqs}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <label className="flex flex-col gap-1.5">
@@ -330,19 +360,53 @@ export default function ArticleForm({
         </select>
       </label>
 
+      {variant === "admin" && mode === "edit" && article && (
+        <div className="grid grid-cols-1 gap-4 border-t border-border-200 pt-5 sm:grid-cols-2">
+          <div>
+            <span className="field-label">Author</span>
+            <p className="mt-1.5 text-sm text-text-900">{article.author.full_name || article.author.email}</p>
+            <p className="text-xs text-text-400">
+              Set automatically to whoever created the article - not editable from this form.
+            </p>
+          </div>
+          <div>
+            <span className="field-label">Assigned reporter</span>
+            <AssignReporterControl article={article} />
+          </div>
+        </div>
+      )}
+
       {mode === "edit" && article ? (
-        <ImageManager slug={article.slug} />
+        <ImageManager slug={article.slug} basePath={`${basePath}`} />
       ) : (
         <p className="rounded-md border border-border-200 bg-surface-50 px-3 py-2.5 text-sm text-text-400">
           Save this draft first to add a featured image, alt text and caption.
         </p>
       )}
 
-      <div className="flex gap-3 border-t border-border-200 pt-5">
+      {mode === "edit" && article ? (
+        <AIPlagiarismPanel slug={article.slug} basePath={basePath} />
+      ) : (
+        <p className="rounded-md border border-border-200 bg-surface-50 px-3 py-2.5 text-sm text-text-400">
+          Save this draft first to run the AI and plagiarism checks.
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-3 border-t border-border-200 pt-5">
         <button type="button" onClick={handleSaveDraft} disabled={saving} className="btn-primary">
           {saving ? "Saving..." : mode === "create" || article?.status === "DRAFT" ? "Save Draft" : "Save Changes"}
         </button>
       </div>
+
+      {/* Workflow actions (Start Review/Request Changes/Reject/Approve/
+          Publish/Schedule/Cancel Schedule) never go through this form's
+          own Save button - they call ArticleWorkflowService's dedicated
+          endpoints directly, per the "no raw status dropdown" rule. */}
+      {variant === "admin" && mode === "edit" && article && (
+        <div className="border-t border-border-200 pt-5">
+          <ArticleWorkflowActions article={article} />
+        </div>
+      )}
     </div>
   );
 }

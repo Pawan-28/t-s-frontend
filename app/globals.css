@@ -47,7 +47,7 @@ select:focus-visible,
    * identical site-wide (design-consistency requirement).
    * ------------------------------------------------------------------- */
   .container-page {
-    @apply mx-auto w-full max-w-page px-4 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8;
   }
   .section-stack > * + * {
     @apply mt-12 sm:mt-14;
@@ -126,6 +126,27 @@ select:focus-visible,
   }
   .empty-state {
     @apply card flex flex-col items-center gap-2 px-6 py-16 text-center;
+  }
+
+  /* ---------------------------------------------------------------------
+   * Dashboard-only surfaces (Admin/Reporter/Subscriber app shell) - a
+   * slightly more elevated "product" feel than the flat editorial `.card`
+   * used by the public site. Kept as separate `dash-*` classes and used
+   * only inside components/dashboard/*, components/reporter/EmptyState
+   * and app/admin|reporter|dashboard/* pages, so this polish pass never
+   * touches public-site card styling or spacing.
+   * ------------------------------------------------------------------- */
+  .dash-card {
+    @apply rounded-xl border border-border-200 bg-surface-0 shadow-[0_1px_2px_0_rgba(15,23,42,0.04)] transition-all duration-200;
+  }
+  .dash-card-hover {
+    @apply dash-card hover:-translate-y-0.5 hover:border-accent-600/40 hover:shadow-[0_12px_28px_-12px_rgba(15,23,42,0.18)];
+  }
+  .dash-icon-badge {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-lg shadow-sm;
+  }
+  .dash-empty {
+    @apply flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-200 bg-surface-50/70 p-4 text-center text-sm text-text-400;
   }
 }
 

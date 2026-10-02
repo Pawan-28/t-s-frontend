@@ -1,6 +1,6 @@
 "use client";
 
-import type { Article, ArticleImage, Tag } from "@/lib/types";
+import type { AIAnalysisResult, Article, ArticleImage, PlagiarismCheckResult, Tag } from "@/lib/types";
 import { extractApiError } from "./apiError";
 
 /**
@@ -31,14 +31,20 @@ export interface ArticlePayload {
   title: string;
   content: string;
   excerpt?: string;
+  // Optional AEO/GEO fields (see components/ArticleAeoGeoFields.tsx).
+  location_name?: string;
+  faqs?: { question: string; answer: string }[];
   slug?: string;
   subcategory_slug: string;
   tag_slugs?: string[];
   access_level?: "PUBLIC" | "SUBSCRIBER_ONLY" | "RESTRICTED";
 }
 
-export async function createArticle(payload: ArticlePayload): Promise<MutationResult<Article>> {
-  const res = await fetch("/api/reporter/articles", {
+export async function createArticle(
+  payload: ArticlePayload,
+  basePath = "/api/reporter/articles"
+): Promise<MutationResult<Article>> {
+  const res = await fetch(basePath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -50,9 +56,10 @@ export async function createArticle(payload: ArticlePayload): Promise<MutationRe
 
 export async function updateArticle(
   slug: string,
-  payload: Partial<ArticlePayload>
+  payload: Partial<ArticlePayload>,
+  basePath = "/api/reporter/articles"
 ): Promise<MutationResult<Article>> {
-  const res = await fetch(`/api/reporter/articles/${encodeURIComponent(slug)}`, {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -69,10 +76,41 @@ export async function submitArticle(slug: string): Promise<MutationResult<Articl
   return { ok: true, data: data as Article, error: null };
 }
 
+/**
+ * Phase 10 - AI Check / Plagiarism Check. Both are purely advisory (see
+ * apps.ai.services' module docstring on the backend): running either one
+ * never blocks or auto-decides Save Draft, Submit, or any admin review
+ * action, and neither ever sends a status PATCH - same "never touches
+ * status directly" contract every other mutation in this file follows.
+ * A plagiarism check comes back PENDING - see PlagiarismCheckResult's own
+ * doc comment in lib/types.ts - Copyleaks completes it later via its own
+ * webhook, not through this app at all.
+ */
+export async function runAICheck(
+  slug: string,
+  basePath = "/api/reporter/articles"
+): Promise<MutationResult<AIAnalysisResult>> {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}/ai-check`, { method: "POST" });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) return { ok: false, data: null, error: extractApiError(data, "Could not run the AI check.") };
+  return { ok: true, data: data as AIAnalysisResult, error: null };
+}
+
+export async function runPlagiarismCheck(
+  slug: string,
+  basePath = "/api/reporter/articles"
+): Promise<MutationResult<PlagiarismCheckResult>> {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}/plagiarism-check`, { method: "POST" });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) return { ok: false, data: null, error: extractApiError(data, "Could not submit the plagiarism check.") };
+  return { ok: true, data: data as PlagiarismCheckResult, error: null };
+}
+
 export async function uploadArticleImage(
   slug: string,
   file: File,
-  fields: { alt_text?: string; caption?: string; is_featured?: boolean; display_order?: number }
+  fields: { alt_text?: string; caption?: string; is_featured?: boolean; display_order?: number },
+  basePath = "/api/reporter/articles"
 ): Promise<MutationResult<ArticleImage>> {
   const formData = new FormData();
   formData.set("image", file);
@@ -81,7 +119,7 @@ export async function uploadArticleImage(
   if (fields.is_featured) formData.set("is_featured", "true");
   if (fields.display_order !== undefined) formData.set("display_order", String(fields.display_order));
 
-  const res = await fetch(`/api/reporter/articles/${encodeURIComponent(slug)}/images`, {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}/images`, {
     method: "POST",
     body: formData,
   });
@@ -93,9 +131,10 @@ export async function uploadArticleImage(
 export async function updateArticleImage(
   slug: string,
   imageId: number,
-  fields: { alt_text?: string; caption?: string; is_featured?: boolean; display_order?: number }
+  fields: { alt_text?: string; caption?: string; is_featured?: boolean; display_order?: number },
+  basePath = "/api/reporter/articles"
 ): Promise<MutationResult<ArticleImage>> {
-  const res = await fetch(`/api/reporter/articles/${encodeURIComponent(slug)}/images/${imageId}`, {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}/images/${imageId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
@@ -105,8 +144,12 @@ export async function updateArticleImage(
   return { ok: true, data: data as ArticleImage, error: null };
 }
 
-export async function deleteArticleImage(slug: string, imageId: number): Promise<MutationResult<null>> {
-  const res = await fetch(`/api/reporter/articles/${encodeURIComponent(slug)}/images/${imageId}`, {
+export async function deleteArticleImage(
+  slug: string,
+  imageId: number,
+  basePath = "/api/reporter/articles"
+): Promise<MutationResult<null>> {
+  const res = await fetch(`${basePath}/${encodeURIComponent(slug)}/images/${imageId}`, {
     method: "DELETE",
   });
   if (!res.ok) {

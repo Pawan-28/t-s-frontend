@@ -184,9 +184,9 @@ export default function RichTextEditor({
         <ToolbarButton label="Link" active={editor.isActive("link")} onClick={setLink}>
           Link
         </ToolbarButton>
-        <ToolbarButton label="Insert image by URL" onClick={addImage}>
+        {/* <ToolbarButton label="Insert image by URL" onClick={addImage}>
           Image
-        </ToolbarButton>
+        </ToolbarButton> */}
       </div>
       <div className="px-4 py-3">
         <EditorContent editor={editor} />

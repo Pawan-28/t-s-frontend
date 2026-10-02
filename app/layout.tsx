@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ConditionalChrome from "@/components/ConditionalChrome";
 import JsonLd from "@/components/JsonLd";
 import { SITE_NAME, SITE_URL, organizationJsonLd, websiteJsonLd } from "@/lib/seo";
 
@@ -36,11 +37,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </a>
         <JsonLd data={organizationJsonLd()} />
         <JsonLd data={websiteJsonLd()} />
-        <Header />
+        <ConditionalChrome>
+          <Header />
+        </ConditionalChrome>
         <main id="main-content" className="flex-1">
           {children}
         </main>
-        <Footer />
+        <ConditionalChrome>
+          <Footer />
+        </ConditionalChrome>
       </body>
     </html>
   );

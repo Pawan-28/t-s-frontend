@@ -1,4 +1,4 @@
-import type { Article, Category, Industry, PaginatedResponse, Subcategory, SubscriptionPlan } from "@/lib/types";
+import type { Advertisement, Article, Category, Industry, PaginatedResponse, Subcategory, SubscriptionPlan } from "@/lib/types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
@@ -251,6 +251,24 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
       `/subscriptions/plans/`
     );
     return Array.isArray(page) ? page : page.results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Phase 11: public, currently-active advertisements for one placement
+ * (GET /api/advertisements/active/?placement=... - AllowAny on the
+ * Django side, see apps.advertisements.views.AdvertisementViewSet.active).
+ * Called directly against Django, same as getSubscriptionPlans() above.
+ * Degrades to an empty list on any failure - an ad slot is decoration,
+ * never something that should be able to break a page render, and "no
+ * active ads" is rendered as nothing (no placeholder ad), per the
+ * explicit requirement.
+ */
+export async function getActiveAdvertisements(placement: Advertisement["placement"]): Promise<Advertisement[]> {
+  try {
+    return await apiFetch<Advertisement[]>(`/advertisements/active/?placement=${encodeURIComponent(placement)}`);
   } catch {
     return [];
   }

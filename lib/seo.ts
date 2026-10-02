@@ -1,7 +1,26 @@
 import type { Article, Category, Industry, Subcategory } from "@/lib/types";
+import { normalizeBunnyUrl } from "@/lib/bunnyUrl";
+import { buildArticleJsonLd, buildFaqJsonLd, buildOrganizationJsonLd } from "@/lib/structuredData";
 
 export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 export const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "Truth & Social";
+
+/**
+ * Optional, real social/profile URLs for the publisher entity (comma-
+ * separated NEXT_PUBLIC_SOCIAL_PROFILES). Empty by default - nothing is
+ * ever emitted as `sameAs` unless the operator actually configures it.
+ */
+const SOCIAL_PROFILES = (process.env.NEXT_PUBLIC_SOCIAL_PROFILES || "")
+  .split(",")
+  .map((u) => u.trim())
+  .filter(Boolean);
+
+const structuredDataContext = {
+  siteUrl: SITE_URL,
+  siteName: SITE_NAME,
+  sameAs: SOCIAL_PROFILES,
+  normalizeUrl: normalizeBunnyUrl,
+};
 
 export function absoluteUrl(path: string): string {
   return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
@@ -24,34 +43,14 @@ export function subcategoryPath(categorySlug: string, subcategorySlug: string): 
   return `/category/${categorySlug}/${subcategorySlug}`;
 }
 
-/** Schema.org NewsArticle JSON-LD for an article detail page. */
+/** Schema.org NewsArticle JSON-LD (SEO + AEO speakable + GEO entities) - see lib/structuredData.js. */
 export function articleJsonLd(article: Article) {
-  return {
-    "@context": "https://schema.org",
-    "@type": "NewsArticle",
-    headline: article.title,
-    description: article.excerpt || undefined,
-    image: article.featured_image_url ? [article.featured_image_url] : undefined,
-    datePublished: article.published_at || article.created_at,
-    dateModified: article.updated_at,
-    author: {
-      "@type": "Person",
-      name: article.author.full_name || article.author.email,
-    },
-    publisher: {
-      "@type": "Organization",
-      name: SITE_NAME,
-      logo: {
-        "@type": "ImageObject",
-        url: absoluteUrl("/favicon.ico"),
-      },
-    },
-    mainEntityOfPage: {
-      "@type": "WebPage",
-      "@id": absoluteUrl(articlePath(article.slug)),
-    },
-    articleSection: article.category?.name,
-  };
+  return buildArticleJsonLd(article, structuredDataContext);
+}
+
+/** Schema.org FAQPage JSON-LD - null unless the author wrote real FAQs and the body is not locked. */
+export function faqJsonLd(article: Article) {
+  return buildFaqJsonLd(article, structuredDataContext);
 }
 
 /** Schema.org BreadcrumbList JSON-LD. */
@@ -72,13 +71,7 @@ export function breadcrumbJsonLd(
 
 /** Sitewide Organization + WebSite JSON-LD, used once in the root layout. */
 export function organizationJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: SITE_NAME,
-    url: SITE_URL,
-    logo: absoluteUrl("/favicon.ico"),
-  };
+  return buildOrganizationJsonLd(structuredDataContext);
 }
 
 export function websiteJsonLd() {

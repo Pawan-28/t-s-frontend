@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { requireReporter } from "@/lib/auth/requireReporter";
 import { getMyArticle } from "@/lib/api/reporterClient";
-import { isEditableByReporter } from "@/lib/reporter/permissions";
+import { isEditableByReporter, isAuthor, isAssignedReporter } from "@/lib/reporter/permissions";
 import ArticleForm from "@/components/reporter/ArticleForm";
 import StatusBadge from "@/components/reporter/StatusBadge";
 
@@ -27,7 +27,12 @@ export default async function EditArticlePage({ params }: Props) {
   // APPROVED, someone else's PUBLISHED story, an UNDER_REVIEW article
   // they're not assigned to, ...) is sent back to the read-only detail
   // page rather than shown a broken form.
-  if (!isEditableByReporter(article, user.id)) {
+  // Note: We allow the author or assigned reporter to stay on the edit page
+  // even after publishing to avoid redirecting them away when they just
+  // published the article.
+  const owner = isAuthor(article, user.id);
+  const assigned = isAssignedReporter(article, user.id);
+  if (!owner && !assigned) {
     redirect(`/reporter/articles/${article.slug}`);
   }
 

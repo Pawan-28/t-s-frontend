@@ -4,6 +4,7 @@ import type { Article } from "@/lib/types";
 import CategoryTag from "@/components/CategoryTag";
 import AccessBadge from "@/components/AccessBadge";
 import { formatDate } from "@/lib/format";
+import { normalizeBunnyUrl } from "@/lib/bunnyUrl";
 
 export default function ArticleCard({ article }: { article: Article }) {
   return (
@@ -12,7 +13,7 @@ export default function ArticleCard({ article }: { article: Article }) {
         <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-50">
           {article.featured_image_url ? (
             <Image
-              src={article.featured_image_url}
+              src={normalizeBunnyUrl(article.featured_image_url)}
               alt={article.title}
               fill
               className="object-cover"

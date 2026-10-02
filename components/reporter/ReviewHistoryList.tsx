@@ -4,6 +4,7 @@ import { formatDateTime } from "@/lib/format";
 const ACTION_LABELS: Record<ArticleReviewAction, string> = {
   SUBMITTED: "Submitted for review",
   RESUBMITTED: "Resubmitted for review",
+  ASSIGNED: "Reporter assigned",
   STARTED_REVIEW: "Review started",
   CHANGES_REQUESTED: "Changes requested",
   REJECTED: "Rejected",

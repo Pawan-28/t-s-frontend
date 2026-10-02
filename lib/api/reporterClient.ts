@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
 import { SITE_URL } from "@/lib/seo";
 import type {
+  AIAnalysisResult,
   Article,
   ArticleReview,
   Notification,
   PaginatedResponse,
+  PlagiarismCheckResult,
 } from "@/lib/types";
 
 /**
@@ -78,6 +80,20 @@ export async function getMyArticle(slug: string): Promise<Article | null> {
 
 export async function getReviewHistory(slug: string): Promise<ArticleReview[]> {
   const result = await reporterFetch<ArticleReview[]>(`/articles/${encodeURIComponent(slug)}/review-history`);
+  return result ?? [];
+}
+
+// Phase 10 (AI + Plagiarism, advisory only - see apps.ai.services'
+// module docstring on the backend). Newest-first history, same shape as
+// getReviewHistory above.
+
+export async function getAIAnalyses(slug: string): Promise<AIAnalysisResult[]> {
+  const result = await reporterFetch<AIAnalysisResult[]>(`/articles/${encodeURIComponent(slug)}/ai-check`);
+  return result ?? [];
+}
+
+export async function getPlagiarismChecks(slug: string): Promise<PlagiarismCheckResult[]> {
+  const result = await reporterFetch<PlagiarismCheckResult[]>(`/articles/${encodeURIComponent(slug)}/plagiarism-check`);
   return result ?? [];
 }
 

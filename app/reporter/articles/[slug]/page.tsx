@@ -3,12 +3,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireReporter } from "@/lib/auth/requireReporter";
-import { getMyArticle, getReviewHistory } from "@/lib/api/reporterClient";
+import { getAIAnalyses, getMyArticle, getPlagiarismChecks, getReviewHistory } from "@/lib/api/reporterClient";
 import { canSubmitForReview, isAssignedReporter, isAuthor, isEditableByReporter, submitButtonLabel } from "@/lib/reporter/permissions";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { normalizeBunnyUrl } from "@/lib/bunnyUrl";
 import StatusBadge from "@/components/reporter/StatusBadge";
 import ReviewHistoryList from "@/components/reporter/ReviewHistoryList";
+import { AICheckHistoryList, PlagiarismCheckHistoryList } from "@/components/reporter/AIPlagiarismHistoryList";
 import SubmitButton from "@/components/reporter/SubmitButton";
+import ArticleWorkflowActions from "@/components/dashboard/ArticleWorkflowActions";
 
 interface Props {
   params: { slug: string };
@@ -30,6 +33,8 @@ export default async function ReporterArticleDetailPage({ params }: Props) {
   if (!article) notFound();
 
   const history = await getReviewHistory(params.slug);
+  const aiAnalyses = await getAIAnalyses(params.slug);
+  const plagiarismChecks = await getPlagiarismChecks(params.slug);
 
   const owner = isAuthor(article, user.id);
   const assigned = isAssignedReporter(article, user.id);
@@ -121,8 +126,8 @@ export default async function ReporterArticleDetailPage({ params }: Props) {
         <div className="rounded-md border border-info-600/30 bg-info-600/5 p-5">
           <p className="text-sm font-bold text-info-600">Assigned to you for review</p>
           <p className="mt-1 text-sm text-text-600">
-            You can edit this article while it is under review. An admin will approve, reject or
-            request further changes.
+            You can edit this article (including its images) while it is under review. When you&rsquo;re
+            ready, use the review decision below - Approve or Reject is yours to make for this article.
           </p>
         </div>
       )}
@@ -166,7 +171,7 @@ export default async function ReporterArticleDetailPage({ params }: Props) {
       {article.featured_image_url && (
         <div className="relative aspect-[16/9] w-full overflow-hidden rounded-md bg-surface-50">
           <Image
-            src={article.featured_image_url}
+            src={normalizeBunnyUrl(article.featured_image_url)}
             alt={article.title}
             fill
             className="object-cover"
@@ -209,9 +214,29 @@ export default async function ReporterArticleDetailPage({ params }: Props) {
         )}
       </div>
 
+      {assigned && (article.status === "UNDER_REVIEW" || article.status === "APPROVED" || article.status === "SCHEDULED") && (
+        <section className="border-t border-border-200 pt-6">
+          <ArticleWorkflowActions article={article} viewerRole="reporter" />
+        </section>
+      )}
+
       <section className="border-t border-border-200 pt-6">
         <h2 className="section-heading mb-4">Review History</h2>
         <ReviewHistoryList history={history} />
+      </section>
+
+      {/* Phase 10 - advisory only, see AIPlagiarismHistoryList's own doc
+          comment. Running a new check happens on the Edit page
+          (AIPlagiarismPanel); this is read-only, for the reporter and,
+          via Django Admin, an editor reviewing the same article. */}
+      <section className="border-t border-border-200 pt-6">
+        <h2 className="section-heading mb-4">AI Check</h2>
+        <AICheckHistoryList results={aiAnalyses} />
+      </section>
+
+      <section className="border-t border-border-200 pt-6">
+        <h2 className="section-heading mb-4">Plagiarism Check</h2>
+        <PlagiarismCheckHistoryList results={plagiarismChecks} />
       </section>
     </div>
   );

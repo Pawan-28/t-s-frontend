@@ -4,22 +4,38 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 /**
- * Reads a `?next=` search param (set by requireReporter's
+ * Reads a `?next=` search param (set by requireReporter/requireAdmin's
  * redirect(`/login?next=...`) and any other auth-gated page) so a login
- * sends the visitor back where they were headed instead of always to
- * /account. Falls back to /account when there's no next param, or when
- * it isn't a same-site path - never redirects to an external URL.
+ * sends the visitor back where they were headed. Returns null - rather
+ * than a default path - when there's no next param, or when it isn't a
+ * same-site path, so the caller can fall back to a role-based default
+ * instead of always landing on the same page. Never redirects to an
+ * external URL.
  */
-function safeNextPath(raw: string | null): string {
-  if (!raw) return "/account";
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/account";
+function explicitNextPath(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
   return raw;
+}
+
+/**
+ * Post-login landing page when no explicit `?next=` was set: ADMIN goes
+ * to the admin CMS, REPORTER to the reporter dashboard, everyone else
+ * (USER/SUBSCRIBER) to the plain account dashboard - each role's own
+ * dashboard route already guards itself (requireAdmin/requireReporter/
+ * requireAccountDashboard), this just avoids bouncing an Admin or
+ * Reporter through the wrong dashboard first.
+ */
+function defaultPathForRole(role: string | undefined): string {
+  if (role === "ADMIN") return "/admin/dashboard";
+  if (role === "REPORTER") return "/reporter/dashboard";
+  return "/dashboard";
 }
 
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeNextPath(searchParams.get("next"));
+  const next = explicitNextPath(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,12 +51,12 @@ export default function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         setError(data.detail || "Invalid email or password.");
         return;
       }
-      router.push(next);
+      router.push(next ?? defaultPathForRole(data.user?.role));
       router.refresh();
     } finally {
       setSubmitting(false);

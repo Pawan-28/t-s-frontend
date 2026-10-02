@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCategoryBySlug, listArticles, listSubcategoriesByCategory } from "@/lib/api/client";
 import { absoluteUrl, categoryPath, categoryBreadcrumb, subcategoryPath, taxonomyBreadcrumbItems } from "@/lib/seo";
+import { normalizeBunnyUrl } from "@/lib/bunnyUrl";
 import ArticleCard from "@/components/ArticleCard";
 import JsonLd from "@/components/JsonLd";
 import Breadcrumbs from "@/components/Breadcrumbs";
@@ -37,12 +38,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description,
       url,
       type: "website",
-      images: category.image_url ? [category.image_url] : undefined,
+      images: category.image_url ? [normalizeBunnyUrl(category.image_url)] : undefined,
     },
     twitter: {
       title,
       description,
-      images: category.image_url ? [category.image_url] : undefined,
+      images: category.image_url ? [normalizeBunnyUrl(category.image_url)] : undefined,
     },
   };
 }

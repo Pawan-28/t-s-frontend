@@ -3,6 +3,7 @@ import { listCategories } from "@/lib/api/client";
 import { getCurrentUser } from "@/lib/auth/currentUser";
 import SearchBox from "@/components/SearchBox";
 import MobileNav from "@/components/MobileNav";
+import { adminLandingPath } from "@/lib/auth/permissions";
 
 export default async function Header() {
   const [categories, user] = await Promise.all([
@@ -14,15 +15,15 @@ export default async function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-border-200 bg-surface-0 text-text-900">
       <div className="container-page">
-        <div className="flex h-14 items-center justify-between gap-4">
+        <div className="relative flex h-14 items-center justify-center">
           <Link
             href="/"
             className="shrink-0 text-xl font-black tracking-tight text-text-900 sm:text-2xl"
           >
-            Truth <span className="text-accent-600">&amp;</span> Social
+            Truth <span className="text-accent-600">And</span> Social
           </Link>
 
-          <div className="hidden items-center gap-3 md:flex">
+          <div className="absolute right-0 hidden items-center gap-3 md:flex">
             <SearchBox compact />
             {user ? (
               <>
@@ -32,6 +33,30 @@ export default async function Header() {
                     className="shrink-0 rounded px-3 py-2 text-sm font-semibold text-accent-600 hover:bg-accent-50"
                   >
                     Reporter Dashboard
+                  </Link>
+                )}
+                {user.role !== "ADMIN" && adminLandingPath(user) && (
+                  <Link
+                    href={adminLandingPath(user) as string}
+                    className="shrink-0 rounded px-3 py-2 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    Admin Panel
+                  </Link>
+                )}
+                {user.role === "ADMIN" && (
+                  <Link
+                    href="/admin/dashboard"
+                    className="shrink-0 rounded px-3 py-2 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    Admin Dashboard
+                  </Link>
+                )}
+                {(user.role === "USER" || user.role === "SUBSCRIBER") && (
+                  <Link
+                    href="/dashboard"
+                    className="shrink-0 rounded px-3 py-2 text-sm font-semibold text-accent-600 hover:bg-accent-50"
+                  >
+                    My Dashboard
                   </Link>
                 )}
                 <Link

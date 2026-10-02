@@ -22,7 +22,22 @@ const TYPE_LABELS: Record<Notification["notification_type"], string> = {
   SUBSCRIPTION_EXPIRED: "Subscription Expired",
 };
 
-export default function NotificationItem({ notification }: { notification: Notification }) {
+export default function NotificationItem({
+  notification,
+  // Both default to the Reporter surface this component was originally
+  // built for, so every existing call site is completely unaffected.
+  // Admin/Account dashboards (which reuse this component rather than
+  // duplicating it) pass "/api/notifications" + "/articles" instead - the
+  // generic mark-read endpoint, and the public article page (the one
+  // page every role can actually view an article from - see
+  // app/admin/articles/page.tsx's own comment on this).
+  markReadEndpoint = "/api/reporter/notifications",
+  articleHrefBase = "/reporter/articles",
+}: {
+  notification: Notification;
+  markReadEndpoint?: string;
+  articleHrefBase?: string;
+}) {
   const [isRead, setIsRead] = useState(notification.is_read);
   const [marking, setMarking] = useState(false);
 
@@ -30,7 +45,11 @@ export default function NotificationItem({ notification }: { notification: Notif
     if (isRead || marking) return;
     setMarking(true);
     setIsRead(true); // optimistic - a failed best-effort call is not worth reverting for
-    await markNotificationRead(notification.id);
+    if (markReadEndpoint === "/api/reporter/notifications") {
+      await markNotificationRead(notification.id);
+    } else {
+      await fetch(`${markReadEndpoint}/${notification.id}/mark-read`, { method: "POST" }).catch(() => {});
+    }
     setMarking(false);
   }
 
@@ -50,7 +69,7 @@ export default function NotificationItem({ notification }: { notification: Notif
   if (notification.article_slug) {
     return (
       <Link
-        href={`/reporter/articles/${notification.article_slug}`}
+        href={`${articleHrefBase}/${notification.article_slug}`}
         onClick={handleMarkRead}
         className="block transition-colors hover:bg-surface-50"
       >

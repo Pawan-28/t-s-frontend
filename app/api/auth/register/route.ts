@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DJANGO_API_BASE_URL } from "@/lib/auth/session";
+import { clientIpHeaders } from "@/lib/auth/clientIp";
 
 /**
  * POST /api/auth/register - thin proxy to Django's existing (Phase 2,
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
 
   const djangoResponse = await fetch(`${DJANGO_API_BASE_URL}/auth/register/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...clientIpHeaders(request) },
     body: JSON.stringify(body),
     cache: "no-store",
   });

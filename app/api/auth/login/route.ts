@@ -7,6 +7,7 @@ import {
   REFRESH_COOKIE,
   REFRESH_COOKIE_MAX_AGE,
 } from "@/lib/auth/session";
+import { clientIpHeaders } from "@/lib/auth/clientIp";
 
 /**
  * POST /api/auth/login - proxies Django's existing POST /api/auth/login/
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   const djangoResponse = await fetch(`${DJANGO_API_BASE_URL}/auth/login/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...clientIpHeaders(request) },
     body: JSON.stringify(body),
     cache: "no-store",
   });
