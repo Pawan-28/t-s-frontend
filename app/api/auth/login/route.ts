@@ -3,11 +3,11 @@ import {
   ACCESS_COOKIE,
   ACCESS_COOKIE_MAX_AGE,
   AUTH_COOKIE_OPTIONS,
-  DJANGO_API_BASE_URL,
   REFRESH_COOKIE,
   REFRESH_COOKIE_MAX_AGE,
 } from "@/lib/auth/session";
 import { clientIpHeaders } from "@/lib/auth/clientIp";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * POST /api/auth/login - proxies Django's existing POST /api/auth/login/
@@ -19,7 +19,7 @@ import { clientIpHeaders } from "@/lib/auth/clientIp";
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  const djangoResponse = await fetch(`${DJANGO_API_BASE_URL}/auth/login/`, {
+  const djangoResponse = await fetch(apiUrl("/auth/login/"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...clientIpHeaders(request) },
     body: JSON.stringify(body),

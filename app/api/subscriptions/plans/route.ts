@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DJANGO_API_BASE_URL } from "@/lib/auth/session";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * GET /api/subscriptions/plans - proxies Django's public (AllowAny)
@@ -9,7 +9,7 @@ import { DJANGO_API_BASE_URL } from "@/lib/auth/session";
  * client-side fetch, and so CORS never enters the picture.
  */
 export async function GET() {
-  const djangoResponse = await fetch(`${DJANGO_API_BASE_URL}/subscriptions/plans/`, {
+  const djangoResponse = await fetch(apiUrl("/subscriptions/plans/"), {
     cache: "no-store",
   });
   const data = await djangoResponse.json().catch(() => ({}));

@@ -1,3 +1,5 @@
+import { API_BASE_URL } from "@/lib/apiBase";
+
 /**
  * Builds a link to a specific Django Admin page. Per the project's
  * established convention ("Django Admin remains the main editorial/admin
@@ -10,7 +12,6 @@
  * stripping the trailing "/api" since Django Admin is mounted at the API
  * host's root, not under /api/.
  */
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
 const DJANGO_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 export function djangoAdminUrl(path: string): string {

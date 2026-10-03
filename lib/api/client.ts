@@ -1,7 +1,6 @@
+import { apiUrl } from "@/lib/apiBase";
 import type { Advertisement, Article, Category, Industry, PaginatedResponse, Subcategory, SubscriptionPlan } from "@/lib/types";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
 
 // Short ISR window: the site is mostly static/server-rendered for SEO and
 // speed, but Phase 6's scheduled-publish Celery task changes article
@@ -19,7 +18,7 @@ export class ApiError extends Error {
 }
 
 async function apiFetch<T>(path: string, accessToken?: string): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
+  const url = apiUrl(path);
 
   // Phase 9: whenever a caller might be entitled to gated content
   // (access_level != PUBLIC), the response depends on WHO is asking, so

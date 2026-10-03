@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * Phase 11: the browser end of the PDF's analytics flow ("Article opened
@@ -16,11 +17,9 @@ import { useEffect } from "react";
  * the server alone decides and stores the count (see
  * apps.analytics.views.ArticleViewTrackingView).
  */
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
-
 export default function ArticleViewTracker({ slug }: { slug: string }) {
   useEffect(() => {
-    fetch(`${API_BASE_URL}/analytics/articles/${encodeURIComponent(slug)}/view/`, {
+    fetch(apiUrl(`/analytics/articles/${encodeURIComponent(slug)}/view/`), {
       method: "POST",
     }).catch(() => {
       // Deliberately ignored - see file doc comment.

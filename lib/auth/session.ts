@@ -11,6 +11,8 @@
  * never the tokens.
  */
 
+import { apiUrl } from "@/lib/apiBase";
+
 export const ACCESS_COOKIE = "ts_access";
 export const REFRESH_COOKIE = "ts_refresh";
 
@@ -27,9 +29,6 @@ export const AUTH_COOKIE_OPTIONS = {
   sameSite: "lax" as const,
   path: "/",
 };
-
-export const DJANGO_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
 
 /**
  * Calls a Django endpoint with the access token from `accessToken`, and -
@@ -61,14 +60,14 @@ export async function fetchWithAuthRefresh(
   }
 
   let response = accessToken
-    ? await fetch(`${DJANGO_API_BASE_URL}${path}`, withAuth(accessToken))
+    ? await fetch(apiUrl(path), withAuth(accessToken))
     : new Response(null, { status: 401 });
 
   if (response.status !== 401 || !refreshToken) {
     return { response, refreshedAccessToken: null };
   }
 
-  const refreshResponse = await fetch(`${DJANGO_API_BASE_URL}/auth/refresh/`, {
+  const refreshResponse = await fetch(apiUrl("/auth/refresh/"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh: refreshToken }),
@@ -79,6 +78,6 @@ export async function fetchWithAuthRefresh(
   }
 
   const { access: newAccessToken } = await refreshResponse.json();
-  response = await fetch(`${DJANGO_API_BASE_URL}${path}`, withAuth(newAccessToken));
+  response = await fetch(apiUrl(path), withAuth(newAccessToken));
   return { response, refreshedAccessToken: newAccessToken };
 }

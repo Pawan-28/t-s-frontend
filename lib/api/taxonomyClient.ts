@@ -1,6 +1,7 @@
 "use client";
 
 import type { Category, Industry, PaginatedResponse, Subcategory, Tag } from "@/lib/types";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * Client-side taxonomy/tag fetchers for the Reporter article form's
@@ -16,10 +17,9 @@ import type { Category, Industry, PaginatedResponse, Subcategory, Tag } from "@/
  * disabled for all four of these on the backend (small reference
  * datasets), so every response here is a plain array.
  */
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
 
 async function publicFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
+  const res = await fetch(apiUrl(path), { cache: "no-store" });
   if (!res.ok) throw new Error(`Request to ${path} failed with ${res.status}`);
   return res.json() as Promise<T>;
 }

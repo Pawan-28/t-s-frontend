@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DJANGO_API_BASE_URL } from "@/lib/auth/session";
+import { apiUrl } from "@/lib/apiBase";
 import { clientIpHeaders } from "@/lib/auth/clientIp";
 
 /**
@@ -11,7 +11,7 @@ import { clientIpHeaders } from "@/lib/auth/clientIp";
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  const djangoResponse = await fetch(`${DJANGO_API_BASE_URL}/auth/register/`, {
+  const djangoResponse = await fetch(apiUrl("/auth/register/"), {
     method: "POST",
     headers: { "Content-Type": "application/json", ...clientIpHeaders(request) },
     body: JSON.stringify(body),

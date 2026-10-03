@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ACCESS_COOKIE, DJANGO_API_BASE_URL, REFRESH_COOKIE } from "@/lib/auth/session";
+import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/session";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * POST /api/auth/logout - blacklists the refresh token via Django's
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
 
   if (accessToken && refreshToken) {
-    await fetch(`${DJANGO_API_BASE_URL}/auth/logout/`, {
+    await fetch(apiUrl("/auth/logout/"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
