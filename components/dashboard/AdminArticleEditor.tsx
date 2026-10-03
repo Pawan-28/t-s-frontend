@@ -296,8 +296,21 @@ export default function AdminArticleEditor({
       return { article: null, error: result.error };
     }
     setSavedArticle(result.data);
+    setSavedSnapshot(JSON.stringify(payload));
     return { article: result.data, error: null };
   }
+
+  // The primary (red) Save button is only for work that still needs saving: a brand-new article, or
+  // edits made since the last save. A saved or published article with no pending changes shows Save in
+  // the same neutral style as the other two buttons. The snapshot is the form's own payload, recorded
+  // on first render and after every successful save, so nothing depends on how the server normalises it.
+  const formKey = JSON.stringify(buildPayload());
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  useEffect(() => {
+    setSavedSnapshot((prev) => prev ?? formKey);
+  }, [formKey]);
+  const hasUnsavedChanges = savedSnapshot !== null && formKey !== savedSnapshot;
+  const saveNeedsAttention = !savedArticle || hasUnsavedChanges;
 
   // Guards against a double click firing two requests before `saving` re-renders.
   const saveInFlight = useRef(false);
@@ -682,7 +695,7 @@ export default function AdminArticleEditor({
           </p>
         )}
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary">
+          <button type="button" onClick={handleSave} disabled={saving} className={saveNeedsAttention ? "btn-primary" : "btn-secondary"} data-testid="article-save">
             {saving ? "Saving..." : "Save"}
           </button>
           <button type="button" onClick={handleSaveAddAnother} disabled={saving} className="btn-secondary">

@@ -75,8 +75,9 @@ export default function ImageManager({
       .finally(() => setLoading(false));
   }, [slug, basePath]);
 
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleUpload(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (uploading) return;
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
       setError("Choose an image file first.");
@@ -275,7 +276,23 @@ export default function ImageManager({
       <form onSubmit={handleUpload} className="flex flex-col gap-3 rounded-md border border-border-200 p-4">
         <label className="flex flex-col gap-1.5">
           <span className="field-label text-sm">Upload an image</span>
-          <input ref={fileInputRef} type="file" accept="image/*" className="field-input" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="field-input"
+            disabled={uploading}
+            // No separate submit button anywhere: choosing a file uploads it right away (same as the
+            // Add Article image field). Alt text / caption / "featured" typed beforehand are attached.
+            onChange={() => void handleUpload()}
+          />
+          <span className="text-xs text-text-400">
+            {uploading
+              ? "Uploading..."
+              : forceFeatured
+                ? "The image uploads as soon as you choose it. Type Alt text / Caption first to attach them, or use \"Edit alt/caption\" afterwards."
+                : "The image uploads as soon as you choose it. Fill in Alt text / Caption (and tick \"Set as featured image\" if needed) first."}
+          </span>
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="field-label text-sm">Alt text</span>
@@ -302,9 +319,7 @@ export default function ImageManager({
             Set as featured image
           </label>
         )}
-        {/* <button type="submit" disabled={uploading} className="btn-secondary self-start">
-          {uploading ? "Uploading..." : "Uploadss image"}
-        </button> */}
+
       </form>
     </div>
   );
