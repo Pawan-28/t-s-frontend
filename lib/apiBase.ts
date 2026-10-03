@@ -9,7 +9,7 @@
  * development build falls back to localhost - a deployed site can never end up
  * calling a developer's machine by accident.
  */
-const PRODUCTION_API_BASE_URL = "https://violet-boar-757474.hostingersite.com";
+const PRODUCTION_API_BASE_URL = "https://violet-boar-757474.hostingersite.com/api";
 const DEVELOPMENT_API_BASE_URL = "http://localhost:8000";
 
 export const API_BASE_URL = (
